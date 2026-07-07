@@ -1,63 +1,71 @@
 const express = require('express');
-const cors = require('cors');
-
+const fetch = require('node-fetch');
 const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '50mb' }));
 
-app.get('/', (req, res) => {
-  res.json({ status: 'Proxy OK!' });
+const KIE_BASE = 'https://kie.ai/api/v1/proxy';
+
+// CORS - bahut zaroori
+app.use(function(req, res, next) {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', '*');
+  res.header('Access-Control-Allow-Methods', '*');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
 });
 
-// ALL requests proxy karo
-app.all('/*', async (req, res) => {
+// Health check
+app.get('/', async function(req, res) {
   try {
-    const path = req.path;
-    const kieUrl = 'https://kie.ai/api/v1' + path;
-    
-    console.log(`→ ${req.method} ${kieUrl}`);
-    console.log(`→ Body: ${JSON.stringify(req.body).substring(0,100)}`);
-
-    const fetchOptions = {
-      method: req.method,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': req.headers['authorization'] || '',
-        'User-Agent': 'Mozilla/5.0',
-        'Accept': 'application/json',
-      }
-    };
-
-    if (req.method !== 'GET') {
-      fetchOptions.body = JSON.stringify(req.body);
-    }
-
-    const response = await fetch(kieUrl, fetchOptions);
-    const text = await response.text();
-    
-    console.log(`← Status: ${response.status}`);
-    console.log(`← Response: ${text.substring(0,200)}`);
-
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Headers', '*');
-    res.setHeader('Content-Type', 'application/json');
-    res.status(response.status).send(text);
-
-  } catch (err) {
-    console.error('Error:', err.message);
-    res.status(500).json({ error: err.message });
+    var r = await fetch(KIE_BASE + '/account/balance', {
+      headers: { 'Authorization': req.headers.authorization || '' }
+    });
+    var data = await r.json();
+    res.json({ status: 'ok', balance: data });
+  } catch(e) {
+    res.json({ status: 'ok', message: 'Proxy running', error: e.message });
   }
 });
 
-app.options('/*', (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', '*');
-  res.setHeader('Access-Control-Allow-Headers', '*');
-  res.status(200).end();
+// GENERIC FORWARDER - Yeh sab kuch forward karega!
+app.all('*', async function(req, res) {
+  try {
+    var targetUrl = KIE_BASE + req.url;
+    console.log('[FORWARD] ' + req.method + ' ' + targetUrl);
+
+    var options = {
+      method: req.method,
+      headers: {
+        'Authorization': req.headers.authorization || '',
+        'Content-Type': req.headers['content-type'] || 'application/json',
+        'Accept': 'application/json'
+      },
+      redirect: 'follow'
+    };
+
+    if (req.method !== 'GET' && req.method !== 'HEAD' && req.body) {
+      options.body = JSON.stringify(req.body);
+    }
+
+    var response = await fetch(targetUrl, options);
+    var text = await response.text();
+
+    console.log('[RESPONSE] ' + response.status + ' (' + text.substring(0, 150) + ')');
+
+    res.status(response.status);
+    try {
+      res.json(JSON.parse(text));
+    } catch(e2) {
+      res.send(text);
+    }
+  } catch(error) {
+    console.error('[ERROR]', error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-app.listen(PORT, () => {
-  console.log(`✅ Proxy running: ${PORT}`);
+var PORT = process.env.PORT || 3000;
+app.listen(PORT, function() {
+  console.log('✅ Proxy running on port ' + PORT);
+  console.log('✅ Forwarding to: ' + KIE_BASE);
 });
