@@ -3,9 +3,10 @@ const fetch = require('node-fetch');
 const app = express();
 app.use(express.json({ limit: '50mb' }));
 
-const KIE_BASE = 'https://kie.ai/api/v1/proxy';
+// SAHI BASE URL!
+const KIE_BASE = 'https://api.kie.ai/api/v1';
 
-// CORS - bahut zaroori
+// CORS
 app.use(function(req, res, next) {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Headers', '*');
@@ -16,18 +17,10 @@ app.use(function(req, res, next) {
 
 // Health check
 app.get('/', async function(req, res) {
-  try {
-    var r = await fetch(KIE_BASE + '/account/balance', {
-      headers: { 'Authorization': req.headers.authorization || '' }
-    });
-    var data = await r.json();
-    res.json({ status: 'ok', balance: data });
-  } catch(e) {
-    res.json({ status: 'ok', message: 'Proxy running', error: e.message });
-  }
+  res.json({ status: 'ok', message: 'Kie Proxy v2 Running', apiBase: KIE_BASE });
 });
 
-// GENERIC FORWARDER - Yeh sab kuch forward karega!
+// FORWARD ALL REQUESTS
 app.all('*', async function(req, res) {
   try {
     var targetUrl = KIE_BASE + req.url;
@@ -50,12 +43,12 @@ app.all('*', async function(req, res) {
     var response = await fetch(targetUrl, options);
     var text = await response.text();
 
-    console.log('[RESPONSE] ' + response.status + ' (' + text.substring(0, 150) + ')');
+    console.log('[RESPONSE] ' + response.status + ' Body: ' + text.substring(0, 200));
 
     res.status(response.status);
     try {
       res.json(JSON.parse(text));
-    } catch(e2) {
+    } catch(e) {
       res.send(text);
     }
   } catch(error) {
@@ -66,6 +59,6 @@ app.all('*', async function(req, res) {
 
 var PORT = process.env.PORT || 3000;
 app.listen(PORT, function() {
-  console.log('✅ Proxy running on port ' + PORT);
+  console.log('✅ Kie Proxy v2 running on port ' + PORT);
   console.log('✅ Forwarding to: ' + KIE_BASE);
 });
